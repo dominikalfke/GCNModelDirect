@@ -1,0 +1,8 @@
+name = "GCNModelDirect"
+uuid = "c649cda6-f027-11e9-14e1-3f54516e7aaa"
+authors = ["dalfke <dominik.alfke@mathematik.tu-chemnitz.de>"]
+version = "0.1.0"
+
+[deps]
+Arpack = "7d9fca2a-8960-54d3-9f78-7d1dccf2cb97"
+GCNModel = "55e6f7bc-a129-11e8-0e95-8b73e6954d4a"
