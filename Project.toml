@@ -6,3 +6,4 @@ version = "0.1.0"
 [deps]
 Arpack = "7d9fca2a-8960-54d3-9f78-7d1dccf2cb97"
 GCNModel = "55e6f7bc-a129-11e8-0e95-8b73e6954d4a"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"

@@ -1,5 +1,16 @@
 
 
+export
+    LowRankKernelMatrices,
+    DirectLowRankGCN,
+    initializeRandomWeights!,
+    propagateLayers!,
+    output,
+    classProbabilities,
+    classPrediction,
+    accuracy,
+    gradientDescentStep,
+
 
 struct LowRankKernelMatrices <: KernelMatrices
     rank :: Int
@@ -104,7 +115,7 @@ function classProbabilities(gcn :: DirectLowRankGCN, set = 1:gcn.dataset.numNode
     return Y ./ sum(Y, dims=2)
 end
 
-classPrediction(gcn :: DirectLowRankMatrix, index :: Int) =
+classPrediction(gcn :: DirectLowRankGCN, index :: Int) =
     argmax(output(gcn, index))
 
 function accuracy(gcn :: DirectLowRankGCN, set = gcn.dataset.testSet)

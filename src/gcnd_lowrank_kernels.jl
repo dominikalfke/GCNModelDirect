@@ -25,7 +25,7 @@ end
 
 ### LowRankPolyHypergraphLaplacianKernel
 
-KernelMatrices(k :: LowRankHypergraphLaplacianKernel) = LowRankKernelMatrices(k, k.rank)
+KernelMatrices(k :: LowRankPolyHypergraphLaplacianKernel) = LowRankKernelMatrices(k, k.rank)
 
 computeKernelMatrices(k :: LowRankPolyHypergraphLaplacianKernel, dataset :: Dataset) =
 	setupMatrices(k, dataset)

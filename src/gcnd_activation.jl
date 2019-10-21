@@ -1,4 +1,9 @@
 
+export
+    setupActivation!,
+    applyActivation,
+    ReluMatrices,
+    backpropagateActivationDerivate
 
 setupActivation!(:: DirectGCN, :: ActivationMatrices, :: Dataset) = nothing
 
