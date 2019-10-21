@@ -9,10 +9,11 @@ export
     classProbabilities,
     classPrediction,
     accuracy,
-    gradientDescentStep,
+    gradientDescentStep!
 
 
 struct LowRankKernelMatrices <: KernelMatrices
+    kernel :: GCNKernel
     rank :: Int
 end
 
@@ -41,13 +42,10 @@ mutable struct DirectLowRankGCN <: DirectGCN
     reducedOutput :: Matrix{Float64}
     trueClasses :: Vector{Int}
 
-    stepLength :: Float64
-
     function DirectLowRankGCN(arc :: GCNArchitecture, dataset :: Dataset,
-                rank :: Int, activation :: ActivationMatrices;
-                stepLength :: Float64 = 0.2)
+                rank :: Int, activation :: ActivationMatrices)
 
-        self = new(arc, dataset, arc.kernel, activation)
+        self = new(arc, dataset, arc.kernel, rank, activation)
 
         checkCompatibility(arc, dataset)
 
@@ -55,24 +53,24 @@ mutable struct DirectLowRankGCN <: DirectGCN
         self.numKernelParts = numParts(arc.kernel)
 
         self.reductionMatrix, self.kernelDiagonals = computeKernelMatrices(self.kernel, dataset)
-        setup!(self.activation, self, dataset)
+        setupActivation!(self, self.activation, dataset)
 
         self.weightMatrices = Matrix{Matrix{Float64}}(undef, self.numLayers, self.numKernelParts)
         initializeRandomWeights!(self)
 
         self.reducedInput = self.reductionMatrix' * dataset.features
-        self.reducedHiddenLayerBeforeActivation = Vector{Matrix{Float64}}(undef, self.numLayers-1)
+        self.reducedHiddenLayersBeforeActivation = Vector{Matrix{Float64}}(undef, self.numLayers-1)
         self.reducedHiddenLayers = Vector{Matrix{Float64}}(undef, self.numLayers-1)
         propagateLayers!(self)
 
         self.trueClasses = [argmax(dataset.labels[i,:]) for i in 1:dataset.numNodes]
 
-        self.stepLength = stepLength
-
         return self
     end
 end
 
+Base.show(io :: IO, gcn :: DirectLowRankGCN) = print(io,
+    "$(typeof(gcn))($(gcn.architecture), $(gcn.dataset))")
 
 function initializeRandomWeights!(gcn :: DirectLowRankGCN)
     for l = 1:gcn.numLayers
@@ -128,7 +126,7 @@ end
 
 
 
-function gradientDescentStep(gcn :: DirectLowRankGCN)
+function gradientDescentStep!(gcn :: DirectLowRankGCN; stepLength :: Float64 = 0.2)
     trainingSet = gcn.dataset.trainingSet
     dX = gcn.reductionMatrix[trainingSet, :]' *
         (classProbabilities(gcn, trainingSet) - gcn.dataset.labels[trainingSet, :])
@@ -141,16 +139,17 @@ function gradientDescentStep(gcn :: DirectLowRankGCN)
         Θ = gcn.weightMatrices[l,:]
         if l == 1
             for k = 1:gcn.numKernelParts
-                gcn.weightMatrices[1,k] -= gcn.stepLength *
+                gcn.weightMatrices[1,k] -= stepLength *
                     (gcn.reducedInput' * (gcn.kernelDiagonals[k] .* dX)
                         + gcn.architecture.regParam * Θ[k])
             end
-            dX = sum((gcn.kernelDiagonals[k] .* dX) * Θ[k]' for k in 1:gcn.numKernelParts)
         else
             for k = 1:gcn.numKernelParts
-                gcn.weightMatrices[l,k] -= gcn.stepLength *
+                gcn.weightMatrices[l,k] -= stepLength *
                     gcn.reducedHiddenLayers[l-1]' * (gcn.kernelDiagonals[k] .* dX)
             end
+            dX = sum((gcn.kernelDiagonals[k] .* dX) * Θ[k]' for k in 1:gcn.numKernelParts)
         end
     end
+    propagateLayers!(gcn)
 end

@@ -12,6 +12,7 @@ applyActivation(:: DirectGCN, :: ActivationMatrices, X :: Matrix{Float64}) =
 
 
 struct ReluMatrices <: ActivationMatrices end
+ActivationMatrices(:: Relu) = ReluMatrices()
 
 function applyActivation(gcn :: DirectLowRankGCN, :: ReluMatrices, X :: Matrix{Float64})
     Y = gcn.reductionMatrix * X
@@ -21,7 +22,7 @@ end
 
 function backpropagateActivationDerivative(gcn :: DirectLowRankGCN,
             :: ReluMatrices, X :: Matrix{Float64}, dX :: Matrix{Float64})
-    maskedUdX = U * dX
-    maskedUdX[(U * X) .< 0.0] .= 0.0
-    return U' * maskedUdX
+    maskedUdX = gcn.reductionMatrix * dX
+    maskedUdX[(gcn.reductionMatrix * X) .< 0.0] .= 0.0
+    return gcn.reductionMatrix' * maskedUdX
 end

@@ -4,7 +4,8 @@ export
     DirectGCN,
     KernelMatrices,
     ActivationMatrices,
-    computeKernelMatrices
+    computeKernelMatrices,
+    runDirectExperiment
 
 using GCNModel
 using LinearAlgebra
@@ -22,5 +23,23 @@ DirectGCN(arc :: GCNArchitecture, dataset :: Dataset) =
     DirectGCN(arc, dataset,
         KernelMatrices(arc.kernel),
         ActivationMatrices(arc.activation))
+
+
+function runDirectExperiment(exp :: Experiment, numRuns :: Int; printInterval :: Int = 0)
+    repeatExperimentRuns(exp, numRuns, printInterval) do exp, dataset
+
+        gcn, setupTime = @timed DirectGCN(exp.architecture, dataset)
+
+        trainingTime = @elapsed for _ in 1:exp.numTrainingIter
+            gradientDescentStep!(gcn)
+        end
+
+        acc = accuracy(gcn)
+
+        return acc, setupTime, trainingTime
+    end
+
+end
+
 
 end
