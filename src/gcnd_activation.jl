@@ -1,11 +1,9 @@
 
 export
-    setupActivation!,
+    setupMatrices!,
     applyActivation,
     ReluMatrices,
     backpropagateActivationDerivate
-
-setupActivation!(:: DirectGCN, :: ActivationMatrices, :: Dataset) = nothing
 
 applyActivation(:: DirectGCN, :: ActivationMatrices, X :: Matrix{Float64}) =
     error("No implementation available")
@@ -13,6 +11,18 @@ applyActivation(:: DirectGCN, :: ActivationMatrices, X :: Matrix{Float64}) =
 
 struct ReluMatrices <: ActivationMatrices end
 ActivationMatrices(:: Relu) = ReluMatrices()
+
+function applyActivation(gcn :: DirectStandardGCN, :: ReluMatrices, X :: Matrix{Float64})
+    X = copy(X)
+    X[X .< 0.0] .= 0.0
+    return X
+end
+function backpropagateActivationDerivative(gcn :: DirectStandardGCN,
+                :: ReluMatrices, X :: Matrix{Float64}, dX :: Matrix{Float64})
+    dX = copy(dX)
+    dX[X .< 0.0] .= 0.0
+    return dX
+end
 
 function applyActivation(gcn :: DirectLowRankGCN, :: ReluMatrices, X :: Matrix{Float64})
     Y = gcn.reductionMatrix * X
