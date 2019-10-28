@@ -111,4 +111,5 @@ function gradientDescentStep!(gcn :: DirectStandardGCN; stepLength :: Float64 = 
         end
     end
 
+    propagateLayers!(gcn)
 end

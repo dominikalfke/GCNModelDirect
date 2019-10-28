@@ -19,7 +19,6 @@ function applyActivation(gcn :: DirectStandardGCN, :: ReluMatrices, X :: Matrix{
 end
 function backpropagateActivationDerivative(gcn :: DirectStandardGCN,
                 :: ReluMatrices, X :: Matrix{Float64}, dX :: Matrix{Float64})
-    dX = copy(dX)
     dX[X .< 0.0] .= 0.0
     return dX
 end
