@@ -47,7 +47,7 @@ applyKernelBeforeWeights(km :: FullStandardKernelMatrices, X :: Matrix{Float64})
     [M * X for M in km.matrices]
 
 applyKernelRows(km :: FullStandardKernelMatrices, X :: Vector{Matrix{Float64}}, indexSet) =
-    sum(kernel.matrices[k][indexSet,:] * X[k] for k in 1:length(X))
+    sum(km.matrices[k][indexSet,:] * X[k] for k in 1:length(X))
 
 applyKernelColumnsBeforeWeights(km :: FullStandardKernelMatrices, X :: Matrix{Float64}, indexSet) =
     [M[indexSet,:]' * X for M in km.matrices]
