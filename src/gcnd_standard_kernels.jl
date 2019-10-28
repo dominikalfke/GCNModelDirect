@@ -24,12 +24,13 @@ applyKernelColumnsBeforeWeights(::IdentityKernelMatrices, X :: Matrix{Float64}, 
     [X[indexSet,:],]
 
 
+#### Kernels made of simple (dense or sparse) nxn matrices
 
 mutable struct FullStandardKernelMatrices <: StandardKernelMatrices
     kernel :: GCNKernel
-    matrices :: Vector{<: AbstractMatrix{Float64}}
+    matrices :: Vector{Any} # Any to include UniformScaling
     FullStandardKernelMatrices(kernel :: GCNKernel) =
-        new(kernel, AbstractMatrix{Float64}[])
+        new(kernel, [])
 end
 
 KernelMatrices(k :: FixedMatrixKernel) = FullStandardKernelMatrices(k)
