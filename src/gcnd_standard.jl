@@ -23,6 +23,8 @@ mutable struct DirectStandardGCN <: DirectGCN
     hiddenLayers :: Vector{Matrix{Float64}}
     outputBeforeKernels :: Vector{Matrix{Float64}}
 
+    optimizerState
+
     function DirectStandardGCN(arc :: GCNArchitecture, dataset :: Dataset,
                     kernel :: StandardKernelMatrices, activation :: ActivationMatrices)
 
@@ -40,6 +42,8 @@ mutable struct DirectStandardGCN <: DirectGCN
         self.hiddenLayersBeforeActivation = Vector{Matrix{Float64}}(undef, self.numLayers-1)
         self.hiddenLayers = Vector{Matrix{Float64}}(undef, self.numLayers-1)
         propagateLayers!(self)
+
+        self.optimizerState = nothing
 
         return self
     end
@@ -115,39 +119,9 @@ end
 
 
 
-function gradientDescentStep!(gcn :: DirectStandardGCN; stepLength :: Float64 = 0.2)
-    # trainingSet = gcn.dataset.trainingSet
-    # dX = classProbabilities(gcn, trainingSet) - gcn.dataset.labels[trainingSet, :]
-    # dX ./= length(trainingSet)
-    #
-    # KTdX = applyKernelColumnsBeforeWeights(gcn.kernel, dX, trainingSet)
-    # Θ = gcn.weightMatrices[end,:]
-    # for k in 1:gcn.numKernelParts
-    #     gcn.weightMatrices[end,k] -= stepLength * (gcn.hiddenLayers[end]' * KTdX[k])
-    # end
-    #
-    # for l = gcn.numLayers-1:-1:1
-    #     dX = sum(KTdX[k] * Θ[k]' for k in 1:gcn.numKernelParts)
-    #     dX = backpropagateActivationDerivative(gcn, gcn.activation,
-    #                 gcn.hiddenLayersBeforeActivation[l], dX)
-    #     Θ = gcn.weightMatrices[l,:]
-    #     if l == 1
-    #         for k in 1:gcn.numKernelParts
-    #             gcn.weightMatrices[l,k] -= stepLength *
-    #                 (gcn.inputAfterKernels[k]' * dX + gcn.architecture.regParam * Θ[k])
-    #         end
-    #     else
-    #         KTdX = applyKernelBeforeWeights(gcn.kernel, dX)
-    #         for k in 1:gcn.numKernelParts
-    #             gcn.weightMatrices[l,k] -= stepLength * (gcn.hiddenLayers[l-1]' * KTdX[k])
-    #         end
-    #     end
-    # end
-
-    gradients = computeParameterGradients(gcn)
-    for (index, g) in pairs(gradients)
-        axpy!(-stepLength, g, gcn.weightMatrices[index])
+function updateParameters!(gcn :: DirectStandardGCN, Θ :: Matrix{Matrix{Float64}}, factor :: Float64 = 1.0)
+    for (index, T) in pairs(Θ)
+        axpy!(factor, T, gcn.weightMatrices[index])
     end
-
     propagateLayers!(gcn)
 end

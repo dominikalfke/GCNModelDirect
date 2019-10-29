@@ -6,7 +6,8 @@ export
     initializeRandomWeights!,
     propagateLayers!,
     output,
-    gradientDescentStep!
+    computeParameterGradients,
+    updateParameters!
 
 
 struct LowRankKernelMatrices <: KernelMatrices
@@ -38,6 +39,8 @@ mutable struct DirectLowRankGCN <: DirectGCN
     reducedHiddenLayers :: Vector{Matrix{Float64}}
     reducedOutput :: Matrix{Float64}
 
+    optimizerState
+
     function DirectLowRankGCN(arc :: GCNArchitecture, dataset :: Dataset,
                 rank :: Int, activation :: ActivationMatrices)
 
@@ -59,6 +62,8 @@ mutable struct DirectLowRankGCN <: DirectGCN
         self.reducedHiddenLayersBeforeActivation = Vector{Matrix{Float64}}(undef, self.numLayers-1)
         self.reducedHiddenLayers = Vector{Matrix{Float64}}(undef, self.numLayers-1)
         propagateLayers!(self)
+
+        self.optimizerState = nothing
 
         return self
     end
@@ -97,32 +102,38 @@ output(gcn :: DirectLowRankGCN, index :: Int) =
 output(gcn :: DirectLowRankGCN, set = 1:gcn.dataset.numNodes) =
     gcn.reductionMatrix[set, :] * gcn.reducedOutput
 
+function computeParameterGradients(gcn :: DirectLowRankGCN)
+    gradients = Matrix{Matrix{Float64}}(undef, gcn.numLayers, gcn.numKernelParts)
 
-function gradientDescentStep!(gcn :: DirectLowRankGCN; stepLength :: Float64 = 0.2)
     trainingSet = gcn.dataset.trainingSet
     dX = (classProbabilities(gcn, trainingSet) - gcn.dataset.labels[trainingSet, :]) ./ length(trainingSet)
     dX = gcn.reductionMatrix[trainingSet, :]' * dX
-
 
     for l = gcn.numLayers:-1:1
         if l < gcn.numLayers
             dX = backpropagateActivationDerivative(gcn, gcn.activation,
                     gcn.reducedHiddenLayersBeforeActivation[l], dX)
         end
-        Θ = gcn.weightMatrices[l,:]
         if l == 1
             for k = 1:gcn.numKernelParts
-                gcn.weightMatrices[1,k] -= stepLength *
-                    (gcn.reducedInputAfterKernels[k]' * dX
-                        + gcn.architecture.regParam * Θ[k])
+                gradients[1,k] = gcn.reducedInputAfterKernels[k]' * dX +
+                            gcn.architecture.regParam * gcn.weightMatrices[l,k]
             end
         else
             for k = 1:gcn.numKernelParts
-                gcn.weightMatrices[l,k] -= stepLength *
-                    gcn.reducedHiddenLayers[l-1]' * (gcn.kernelDiagonals[k] .* dX)
+                gradients[l,k] = gcn.reducedHiddenLayers[l-1]' * (gcn.kernelDiagonals[k] .* dX)
             end
-            dX = sum((gcn.kernelDiagonals[k] .* dX) * Θ[k]' for k in 1:gcn.numKernelParts)
+            dX = sum((gcn.kernelDiagonals[k] .* dX) * gcn.weightMatrices[l,k]'
+                        for k in 1:gcn.numKernelParts)
         end
+    end
+    return gradients
+end
+
+
+function updateParameters!(gcn :: DirectLowRankGCN, Θ :: Matrix{Matrix{Float64}}, factor :: Float64 = 1.0)
+    for (index, T) in pairs(Θ)
+        axpy!(factor, T, gcn.weightMatrices[index])
     end
     propagateLayers!(gcn)
 end

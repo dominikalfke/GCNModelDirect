@@ -26,6 +26,7 @@ include("gcnd_standard_kernels.jl")
 include("gcnd_lowrank.jl")
 include("gcnd_lowrank_kernels.jl")
 include("gcnd_activation.jl")
+include("gcnd_optimization.jl")
 
 DirectGCN(arc :: GCNArchitecture, dataset :: Dataset) =
     DirectGCN(arc, dataset,
@@ -57,13 +58,15 @@ function accuracy(gcn :: DirectGCN, set = gcn.dataset.testSet)
 end
 
 
-function runDirectExperiment(exp :: Experiment, numRuns :: Int; printInterval :: Int = 0)
+function runDirectExperiment(exp :: Experiment, numRuns :: Int,
+                                opt = GradientDescentOptimizer();
+                                printInterval :: Int = 0)
     return repeatExperimentRuns(exp, numRuns, printInterval) do exp, dataset
 
         gcn, setupTime = @timed DirectGCN(exp.architecture, dataset)
 
         trainingTime = @elapsed for _ in 1:exp.numTrainingIter
-            gradientDescentStep!(gcn)
+            optimizationStep!(gcn, opt)
         end
 
         acc = accuracy(gcn)
