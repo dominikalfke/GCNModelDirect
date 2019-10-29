@@ -14,7 +14,7 @@ KernelMatrices(:: IdentityKernel) = IdentityKernelMatrices()
 applyKernel(::IdentityKernelMatrices, X :: Vector{Matrix{Float64}}) =
     X[1]
 
-applyKernelBeforeWeights(::IdentityKernelMatrices, X :: Matrix{Float64}) =
+applyKernelBeforeWeights(::IdentityKernelMatrices, X :: AbstractMatrix{Float64}) =
     [X,]
 
 applyKernelRows(::IdentityKernelMatrices, X :: Vector{Matrix{Float64}}, indexSet) =
@@ -35,25 +35,31 @@ end
 
 KernelMatrices(k :: FixedMatrixKernel) = FullStandardKernelMatrices(k)
 KernelMatrices(k :: PolyLaplacianKernel) = FullStandardKernelMatrices(k)
+KernelMatrices(k :: InverseLaplacianKernel) = FullStandardKernelMatrices(k)
 
 function setupMatrices!(:: DirectStandardGCN, km :: FullStandardKernelMatrices, dataset :: Dataset)
-    km.matrices = computeMatrices(km.kernel, dataset)
+    mat = computeMatrices(km.kernel, dataset)
+    if isa(mat, Matrix{<: Number})
+        mat = [mat,]
+    end
+    km.matrices = mat
 end
 
 applyKernel(km :: FullStandardKernelMatrices, X :: Vector{Matrix{Float64}}) =
     sum(km.matrices[k] * X[k] for k in 1:length(X))
 
-applyKernelBeforeWeights(km :: FullStandardKernelMatrices, X :: Matrix{Float64}) =
+applyKernelBeforeWeights(km :: FullStandardKernelMatrices, X :: AbstractMatrix{Float64}) =
     [M * X for M in km.matrices]
 
 applyKernelRows(km :: FullStandardKernelMatrices, X :: Vector{Matrix{Float64}}, indexSet) =
     sum(km.matrices[k][indexSet,:] * X[k] for k in 1:length(X))
 
-applyKernelColumnsBeforeWeights(km :: FullStandardKernelMatrices, X :: Matrix{Float64}, indexSet) =
+applyKernelColumnsBeforeWeights(km :: FullStandardKernelMatrices, X :: AbstractMatrix{Float64}, indexSet) =
     [M[:,indexSet] * X for M in km.matrices]
 
 
 
+#### Kernels made up of a scaled identity and a low rank matrix
 
 mutable struct ScalingPlusLowRankKernelMatrices <: StandardKernelMatrices
     kernel :: GCNKernel
@@ -94,7 +100,7 @@ function applyKernel(km :: ScalingPlusLowRankKernelMatrices, X :: Vector{Matrix{
     return Y
 end
 
-function applyKernelBeforeWeights(km :: ScalingPlusLowRankKernelMatrices, X :: Matrix{Float64})
+function applyKernelBeforeWeights(km :: ScalingPlusLowRankKernelMatrices, X :: AbstractMatrix{Float64})
     projectedX = km.lowRankProjectionMatrix' * X
     return [km.scalingFactors[k]*X + km.lowRankProjectionMatrix * (km.lowRankInnerMatrices[k] * projectedX)
             for k in 1:km.numParts]
@@ -109,7 +115,7 @@ function applyKernelRows(km :: ScalingPlusLowRankKernelMatrices, X :: Vector{Mat
     return Y
 end
 
-function applyKernelColumnsBeforeWeights(km :: ScalingPlusLowRankKernelMatrices, X :: Matrix{Float64}, indexSet)
+function applyKernelColumnsBeforeWeights(km :: ScalingPlusLowRankKernelMatrices, X :: AbstractMatrix{Float64}, indexSet)
     projectedX = km.lowRankProjectionMatrix[indexSet, :]' * X
     Y = Vector{Matrix{Float64}}(undef, km.numParts)
     for k in 1:km.numParts
