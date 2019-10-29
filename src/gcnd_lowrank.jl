@@ -100,8 +100,9 @@ output(gcn :: DirectLowRankGCN, set = 1:gcn.dataset.numNodes) =
 
 function gradientDescentStep!(gcn :: DirectLowRankGCN; stepLength :: Float64 = 0.2)
     trainingSet = gcn.dataset.trainingSet
-    dX = gcn.reductionMatrix[trainingSet, :]' *
-        (classProbabilities(gcn, trainingSet) - gcn.dataset.labels[trainingSet, :])
+    dX = (classProbabilities(gcn, trainingSet) - gcn.dataset.labels[trainingSet, :]) ./ length(trainingSet)
+    dX = gcn.reductionMatrix[trainingSet, :]' * dX
+
 
     for l = gcn.numLayers:-1:1
         if l < gcn.numLayers
