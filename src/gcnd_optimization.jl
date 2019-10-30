@@ -5,19 +5,50 @@ export
     AdamOptimizer,
     optimizationStep!
 
+##### Gradient Descent
 
 mutable struct GradientDescentOptimizer
-    stepLength :: Float64
-    GradientDescentOptimizer(stepLength :: Float64 = 0.2) =
-        new(stepLength)
+    learningRate :: Float64
+    GradientDescentOptimizer(learningRate :: Float64 = 0.2) =
+        new(learningRate)
 end
 
 function optimizationStep!(gcn :: DirectGCN, opt :: GradientDescentOptimizer)
     gradients = computeParameterGradients(gcn)
-    updateParameters!(gcn, gradients, -opt.stepLength)
+    updateParameters!(gcn, gradients, -opt.learningRate)
 end
 
 
+###### Momentum Gradient Descent
+
+mutable struct MomentumGradientDescentOptimizer
+    learningRate :: Float64
+    momentum :: Float64
+
+    MomentumGradientDescentOptimizer(learningRate :: Float64 = 0.1, momentum :: Float64 = 0.9) =
+        momentum == 0.0 ? GradientDescentOptimizer(learningRate) : new(learningRate, momentum)
+end
+
+mutable struct MomentumGradientDescentOptimizerState
+    velocities :: Matrix{Matrix{Float64}}
+end
+
+function optimizationStep!(gcn :: DirectGCN, opt :: MomentumGradientDescentOptimizer)
+    gradients = computeParameterGradients(gcn)
+    if isnothing(gcn.optimizerState)
+        v = [(1-opt.momentum)*g for g in gradients]
+        gcn.optimizerState = MomentumGradientDescentOptimizerState(v)
+    else
+        v = gcn.optimizerState.velocities
+        for (index,g) in gradients
+            axpby!(1-opt.momentum, g, opt.momentum, v[index])
+        end
+    end
+    updateParameters!(gcn, v, -opt.learningRate)
+end
+
+
+##### Adam
 
 mutable struct AdamOptimizer
     learningRate :: Float64

@@ -1,12 +1,69 @@
 
+export
+    StandardKernelMatrices,
+    applyKernel,
+    applyKernelBeforeWeights,
+    applyKernelRows,
+    applyKernelColumnsBeforeWeights,
+    DirectStandardGCN
 
+"""
+    StandardKernelMatrices
+
+Abstract intermediate type for `KernelMatrices` subtypes that warrant a standard
+(non-lowrank) implementation. All subtypes must implement the four functions
+`applyKernel`, `applyKernelBeforeWeights`, `applyKernelRows`, and
+`applyKernelColumnsBeforeWeights`
+"""
 abstract type StandardKernelMatrices <: KernelMatrices end
+
+
+"""
+    applyKernel(km :: StandardKernelMatrices, X :: Vector{Matrix{Float64}})
+
+For a 1-D array of matrices X, compute the sum over all `K_k*X[k]`, where
+`K_k` is the k-th kernel matrix.
+"""
+applyKernel(:: StandardKernelMatrices, X :: Vector{Matrix{Float64}}) = nothing
+
+"""
+    applyKernelBeforeWeights(km :: StandardKernelMatrices, X :: AbstractMatrix{Float64})
+
+For a single abstract matrix X, compute the 1-D array holding all `K_k*X`,
+where `K[k]` is the k-th kernel matrix.
+"""
+applyKernelBeforeWeights(:: StandardKernelMatrices, X :: AbstractMatrix{Float64}) = nothing
+
+"""
+    applyKernelRows(km :: StandardKernelMatrices, X :: Vector{Matrix{Float64}}, indexSet)
+
+For a 1-D array of matrices X, compute the sum over all `K_k[indexSet,:]*X[k]`, where
+`K_k` is the k-th kernel matrix.
+"""
+applyKernelRows(:: StandardKernelMatrices, X :: Vector{Matrix{Float64}}, indexSet) = nothing
+
+"""
+    applyKernelColumnsBeforeWeights(km :: StandardKernelMatrices, X :: AbstractMatrix{Float64}, indexSet)
+
+For a single matrix X, compute the 1-D array holding all `K_k[:,indexSet]*X`,
+where `K_k` is the k-th kernel matrix.
+"""
+applyKernelColumnsBeforeWeights(:: StandardKernelMatrices, X :: Matrix{Float64}, indexSet) = nothing
+
 
 function DirectGCN(arc :: GCNArchitecture, dataset :: Dataset,
             kernel :: StandardKernelMatrices, activation :: ActivationMatrices)
     return DirectStandardGCN(arc, dataset, kernel, activation)
 end
 
+
+"""
+    DirectStandardGCN
+
+`DirectGCN` subtype that gives an efficient GCN implementation for most kernels.
+While kernel matrix structure can be exploited via the `KernelMatrices` subtype,
+that structure will not be exploited any further in the GCN.
+"""
 mutable struct DirectStandardGCN <: DirectGCN
 
     architecture :: GCNArchitecture
@@ -48,6 +105,9 @@ mutable struct DirectStandardGCN <: DirectGCN
         return self
     end
 end
+
+Base.show(io :: IO, gcn :: DirectStandardGCN) = print(io,
+    "$(typeof(gcn))($(gcn.architecture), $(gcn.dataset))")
 
 
 function initializeRandomWeights!(gcn :: DirectStandardGCN)
@@ -119,9 +179,9 @@ end
 
 
 
-function updateParameters!(gcn :: DirectStandardGCN, Θ :: Matrix{Matrix{Float64}}, factor :: Float64 = 1.0)
-    for (index, T) in pairs(Θ)
-        axpy!(factor, T, gcn.weightMatrices[index])
+function updateParameters!(gcn :: DirectStandardGCN, dΘ :: Matrix{Matrix{Float64}}, factor :: Float64 = 1.0)
+    for (index, dW) in pairs(dΘ)
+        axpy!(factor, dW, gcn.weightMatrices[index])
     end
     propagateLayers!(gcn)
 end

@@ -2,7 +2,7 @@
 
 export
     FullStandardKernelMatrices,
-    applyKernel
+    ScalingPlusLowRankKernelMatrices
 
 
 
@@ -66,7 +66,7 @@ mutable struct ScalingPlusLowRankKernelMatrices <: StandardKernelMatrices
     numParts :: Int
     scalingFactors :: Vector{Float64}
     lowRankProjectionMatrix :: Matrix{Float64}
-    lowRankInnerMatrices :: Vector{<: AbstractMatrix{Float64}}
+    lowRankInnerMatrices :: Vector{Any} # because it might contain UniformScaling
 
     ScalingPlusLowRankKernelMatrices(kernel :: GCNKernel) = new(kernel, numParts(kernel),
         Float64[], zeros(0,0), AbstractMatrix{Float64}[])

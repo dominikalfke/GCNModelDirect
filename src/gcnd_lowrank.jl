@@ -2,28 +2,54 @@
 
 export
     LowRankKernelMatrices,
-    DirectLowRankGCN,
-    initializeRandomWeights!,
-    propagateLayers!,
-    output,
-    computeParameterGradients,
-    updateParameters!
+    computeKernelFactorization,
+    DirectLowRankGCN
 
 
+"""
+    LowRankKernelMatrices
+
+`KernelMatrices` subtype for all kernel types whose kernel matrices have a
+low-rank factorization with a shared reduction matrix. For custom `GCNKernel`
+subtypes satisfying this condition, simply add a function
+`KernelMatrices(k :: CustomKernel) = LowRankKernelmatrices(k, rank(k))`
+(where `rank(k)` is replaced with a suitable expression) as well as an
+implementation of `computeKernelFactorization`.
+"""
 struct LowRankKernelMatrices <: KernelMatrices
     kernel :: GCNKernel
     rank :: Int
 end
 
+"""
+    computeKernelFactorization(kernel :: GCNKernel, dataset :: Dataset)
+
+For low-rank `GCNKernel` subtypes, compute the factorization of the kernel
+matrices. The returned value has to be a tuple `(U, d)` where `U` is the shared
+`n × r` reduction matrix, and `diagonals` is a 1-D array holding the `K` vectors
+on the diagonals of the inner parts, i.e., the filter function values. Here `K`
+is the number of kernel parts. Note that even if `K==1`, the returned value must
+be a vector holding a single value, which is the diagonal vector.
+"""
+computeKernelFactorization(kernel :: GCNKernel, dataset :: Dataset) =
+    error("No kernel factorization available for a kernel of type $(typeof(kernel))")
+
 DirectGCN(arc :: GCNArchitecture, dataset :: Dataset, kernel :: LowRankKernelMatrices,
             activation :: ActivationMatrices; kwargs...) =
     DirectLowRankGCN(arc, dataset, kernel.rank, activation; kwargs...)
 
+
+"""
+    DirectLowRankGCN
+
+Subtype of `DirectGCN` for implementation of a GCN that exploits kernels where
+each part has a low-rank factorization with a shared reduction matrix. Unlike
+`DirectStandardGCN`, this fact can be exploited to
+"""
 mutable struct DirectLowRankGCN <: DirectGCN
 
     architecture :: GCNArchitecture
     dataset :: Dataset
-    kernel :: GCNKernel
     rank :: Int
     activation :: ActivationMatrices
 
@@ -44,14 +70,14 @@ mutable struct DirectLowRankGCN <: DirectGCN
     function DirectLowRankGCN(arc :: GCNArchitecture, dataset :: Dataset,
                 rank :: Int, activation :: ActivationMatrices)
 
-        self = new(arc, dataset, arc.kernel, rank, activation)
+        self = new(arc, dataset, rank, activation)
 
         checkCompatibility(arc, dataset)
 
         self.numLayers = length(arc.layerWidths)-1
         self.numKernelParts = numParts(arc.kernel)
 
-        self.reductionMatrix, self.kernelDiagonals = computeKernelFactorization(self.kernel, dataset)
+        self.reductionMatrix, self.kernelDiagonals = computeKernelFactorization(arc.kernel, dataset)
         setupMatrices!(self, self.activation, dataset)
 
         self.weightMatrices = Matrix{Matrix{Float64}}(undef, self.numLayers, self.numKernelParts)
