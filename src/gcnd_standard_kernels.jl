@@ -20,7 +20,7 @@ applyKernelBeforeWeights(::IdentityKernelMatrices, X :: AbstractMatrix{Float64})
 applyKernelRows(::IdentityKernelMatrices, X :: Vector{Matrix{Float64}}, indexSet) =
     X[1][indexSet,:]
 
-applyKernelColumnsBeforeWeights(::IdentityKernelMatrices, X :: Matrix{Float64}, indexSet) =
+applyKernelColumnsBeforeWeights(::IdentityKernelMatrices, X :: AbstractMatrix{Float64}, indexSet) =
     [X[indexSet,:],]
 
 

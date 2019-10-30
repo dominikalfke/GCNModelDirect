@@ -48,7 +48,7 @@ applyKernelRows(:: StandardKernelMatrices, X :: Vector{Matrix{Float64}}, indexSe
 For a single matrix X, compute the 1-D array holding all `K_k[:,indexSet]*X`,
 where `K_k` is the k-th kernel matrix.
 """
-applyKernelColumnsBeforeWeights(:: StandardKernelMatrices, X :: Matrix{Float64}, indexSet) = nothing
+applyKernelColumnsBeforeWeights(:: StandardKernelMatrices, X :: AbstractMatrix{Float64}, indexSet) = nothing
 
 
 function DirectGCN(arc :: GCNArchitecture, dataset :: Dataset,
