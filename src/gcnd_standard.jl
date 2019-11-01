@@ -3,8 +3,8 @@ export
     StandardKernelMatrices,
     applyKernel,
     applyKernelBeforeWeights,
-    applyKernelRows,
-    applyKernelColumnsBeforeWeights,
+    applyKernelTrainingRows,
+    applyKernelTrainingColumnsBeforeWeights,
     DirectStandardGCN
 
 """
@@ -12,8 +12,8 @@ export
 
 Abstract intermediate type for `KernelMatrices` subtypes that warrant a standard
 (non-lowrank) implementation. All subtypes must implement the four functions
-`applyKernel`, `applyKernelBeforeWeights`, `applyKernelRows`, and
-`applyKernelColumnsBeforeWeights`
+`applyKernel`, `applyKernelBeforeWeights`, `applyKernelTrainingRows`, and
+`applyKernelTrainingColumnsBeforeWeights`
 """
 abstract type StandardKernelMatrices <: KernelMatrices end
 
@@ -35,20 +35,20 @@ where `K[k]` is the k-th kernel matrix.
 applyKernelBeforeWeights(:: StandardKernelMatrices, X :: AbstractMatrix{Float64}) = nothing
 
 """
-    applyKernelRows(km :: StandardKernelMatrices, X :: Vector{Matrix{Float64}}, indexSet)
+    applyKernelTrainingRows(km :: StandardKernelMatrices, X :: Vector{Matrix{Float64}})
 
-For a 1-D array of matrices X, compute the sum over all `K_k[indexSet,:]*X[k]`, where
+For a 1-D array of matrices X, compute the sum over all `K_k[trainingSet,:]*X[k]`, where
 `K_k` is the k-th kernel matrix.
 """
-applyKernelRows(:: StandardKernelMatrices, X :: Vector{Matrix{Float64}}, indexSet) = nothing
+applyKernelTrainingRows(:: StandardKernelMatrices, X :: Vector{Matrix{Float64}}) = nothing
 
 """
-    applyKernelColumnsBeforeWeights(km :: StandardKernelMatrices, X :: AbstractMatrix{Float64}, indexSet)
+    applyKernelTrainingColumnsBeforeWeights(km :: StandardKernelMatrices, X :: AbstractMatrix{Float64})
 
-For a single matrix X, compute the 1-D array holding all `K_k[:,indexSet]*X`,
+For a single matrix X, compute the 1-D array holding all `K_k[:,trainingSet]*X`,
 where `K_k` is the k-th kernel matrix.
 """
-applyKernelColumnsBeforeWeights(:: StandardKernelMatrices, X :: AbstractMatrix{Float64}, indexSet) = nothing
+applyKernelTrainingColumnsBeforeWeights(:: StandardKernelMatrices, X :: AbstractMatrix{Float64}) = nothing
 
 
 function DirectGCN(arc :: GCNArchitecture, dataset :: Dataset,
@@ -80,6 +80,7 @@ mutable struct DirectStandardGCN <: DirectGCN
     hiddenLayers :: Vector{Matrix{Float64}}
     outputBeforeKernels :: Vector{Matrix{Float64}}
 
+    trainingLabels :: AbstractMatrix{Float64}
     optimizerState
 
     function DirectStandardGCN(arc :: GCNArchitecture, dataset :: Dataset,
@@ -100,6 +101,7 @@ mutable struct DirectStandardGCN <: DirectGCN
         self.hiddenLayers = Vector{Matrix{Float64}}(undef, self.numLayers-1)
         propagateLayers!(self)
 
+        self.trainingLabels = dataset.labels[dataset.trainingSet, :]
         self.optimizerState = nothing
 
         return self
@@ -138,22 +140,19 @@ function propagateLayers!(gcn :: DirectStandardGCN)
     gcn.outputBeforeKernels = X
 end
 
-output(gcn :: DirectStandardGCN, index :: Int) =
-    applyKernelRows(gcn.kernel, gcn.outputBeforeKernels, index:index)[:]
-output(gcn :: DirectStandardGCN, indexSet) =
-    applyKernelRows(gcn.kernel, gcn.outputBeforeKernels, indexSet)
 output(gcn :: DirectStandardGCN) =
     applyKernel(gcn.kernel, gcn.outputBeforeKernels)
 
+trainingOutput(gcn :: DirectStandardGCN) =
+    applyKernelTrainingRows(gcn.kernel, gcn.outputBeforeKernels)
 
 
 function computeParameterGradients(gcn :: DirectStandardGCN)
     gradients = Matrix{Matrix{Float64}}(undef, gcn.numLayers, gcn.numKernelParts)
 
-    trainingSet = gcn.dataset.trainingSet
-    dX = (classProbabilities(gcn, trainingSet) - gcn.dataset.labels[trainingSet, :]) ./ length(trainingSet)
+    dX = (trainingClassProbabilities(gcn) - gcn.trainingLabels) / length(gcn.dataset.trainingSet)
 
-    KdX = applyKernelColumnsBeforeWeights(gcn.kernel, dX, trainingSet)
+    KdX = applyKernelTrainingColumnsBeforeWeights(gcn.kernel, dX)
     for k in 1:gcn.numKernelParts
         gradients[end,k] = gcn.hiddenLayers[end]' * KdX[k]
     end

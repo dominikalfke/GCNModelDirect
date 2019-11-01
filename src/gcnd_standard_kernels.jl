@@ -6,31 +6,15 @@ export
 
 
 
-### IdentityKernel
-
-struct IdentityKernelMatrices <: StandardKernelMatrices end
-KernelMatrices(:: IdentityKernel) = IdentityKernelMatrices()
-
-applyKernel(::IdentityKernelMatrices, X :: Vector{Matrix{Float64}}) =
-    X[1]
-
-applyKernelBeforeWeights(::IdentityKernelMatrices, X :: AbstractMatrix{Float64}) =
-    [X,]
-
-applyKernelRows(::IdentityKernelMatrices, X :: Vector{Matrix{Float64}}, indexSet) =
-    X[1][indexSet,:]
-
-applyKernelColumnsBeforeWeights(::IdentityKernelMatrices, X :: AbstractMatrix{Float64}, indexSet) =
-    [X[indexSet,:],]
-
-
 #### Kernels made of simple (dense or sparse) nxn matrices
 
 mutable struct FullStandardKernelMatrices <: StandardKernelMatrices
     kernel :: GCNKernel
-    matrices :: Vector{Any} # Any to include UniformScaling
+    matrices :: Vector # No type to include UniformScaling
+    trainingSubmatrices :: Vector
+
     FullStandardKernelMatrices(kernel :: GCNKernel) =
-        new(kernel, [])
+        new(kernel, [], [])
 end
 
 KernelMatrices(k :: FixedMatrixKernel) = FullStandardKernelMatrices(k)
@@ -38,11 +22,23 @@ KernelMatrices(k :: PolyLaplacianKernel) = FullStandardKernelMatrices(k)
 KernelMatrices(k :: InverseLaplacianKernel) = FullStandardKernelMatrices(k)
 
 function setupMatrices!(:: DirectStandardGCN, km :: FullStandardKernelMatrices, dataset :: Dataset)
-    mat = computeMatrices(km.kernel, dataset)
-    if isa(mat, Matrix{<: Number})
-        mat = [mat,]
+    matrices = computeMatrices(km.kernel, dataset)
+    if isa(matrices, Matrix{<: Number})
+        matrices = [matrices,]
     end
-    km.matrices = mat
+    km.matrices = matrices
+
+    for M in matrices
+        if isa(M, UniformScaling)
+            s = length(dataset.trainingSet)
+            push!(km.trainingSubmatrices,
+                sparse(1:s, dataset.trainingSet, fill(M.λ, s), s, dataset.numNodes))
+        elseif isa(M, SparseMatrixCSC)
+            push!(km.trainingSubmatrices, M[:, dataset.trainingSet]')
+        else
+            push!(km.trainingSubmatrices, M[dataset.trainingSet, :])
+        end
+    end
 end
 
 applyKernel(km :: FullStandardKernelMatrices, X :: Vector{Matrix{Float64}}) =
@@ -51,11 +47,11 @@ applyKernel(km :: FullStandardKernelMatrices, X :: Vector{Matrix{Float64}}) =
 applyKernelBeforeWeights(km :: FullStandardKernelMatrices, X :: AbstractMatrix{Float64}) =
     [M * X for M in km.matrices]
 
-applyKernelRows(km :: FullStandardKernelMatrices, X :: Vector{Matrix{Float64}}, indexSet) =
-    sum(km.matrices[k][indexSet,:] * X[k] for k in 1:length(X))
+applyKernelTrainingRows(km :: FullStandardKernelMatrices, X :: Vector{Matrix{Float64}}) =
+    sum(km.trainingSubmatrices[k] * X[k] for k in 1:length(X))
 
-applyKernelColumnsBeforeWeights(km :: FullStandardKernelMatrices, X :: AbstractMatrix{Float64}, indexSet) =
-    [M[:,indexSet] * X for M in km.matrices]
+applyKernelTrainingColumnsBeforeWeights(km :: FullStandardKernelMatrices, X :: AbstractMatrix{Float64}) =
+    [M' * X for M in km.trainingSubmatrices]
 
 
 
@@ -66,10 +62,11 @@ mutable struct ScalingPlusLowRankKernelMatrices <: StandardKernelMatrices
     numParts :: Int
     scalingFactors :: Vector{Float64}
     lowRankProjectionMatrix :: Matrix{Float64}
-    lowRankInnerMatrices :: Vector{<: Any} # because it might contain UniformScaling
+    lowRankInnerMatrices :: Vector # because it might contain UniformScaling
+    trainingSubmatrices :: Vector
 
     ScalingPlusLowRankKernelMatrices(kernel :: GCNKernel) = new(kernel, numParts(kernel),
-        Float64[], zeros(0,0), AbstractMatrix{Float64}[])
+        Float64[], zeros(0,0), [], [])
 end
 
 KernelMatrices(kernel :: PolyHypergraphLaplacianKernel) =
@@ -87,6 +84,14 @@ end
 function setupMatrices!(:: DirectStandardGCN, km :: ScalingPlusLowRankKernelMatrices, dataset :: Dataset)
     km.scalingFactors, km.lowRankProjectionMatrix, km.lowRankInnerMatrices =
         computeScalingPlusLowRankMatrixParts(km.kernel, dataset)
+    set = dataset.trainingSet
+    for k in 1:km.numParts
+        K = km.lowRankProjectionMatrix[set,:] * km.lowRankInnerMatrices[k] * km.lowRankProjectionMatrix'
+        for (i,j) in pairs(set)
+            K[i,j] += km.scalingFactors[k]
+        end
+        push!(km.trainingSubmatrices, K)
+    end
 end
 
 
@@ -106,24 +111,11 @@ function applyKernelBeforeWeights(km :: ScalingPlusLowRankKernelMatrices, X :: A
             for k in 1:km.numParts]
 end
 
-function applyKernelRows(km :: ScalingPlusLowRankKernelMatrices, X :: Vector{Matrix{Float64}}, indexSet)
-    Y = km.lowRankProjectionMatrix[indexSet,:] *
-            sum(km.lowRankInnerMatrices[k] * (km.lowRankProjectionMatrix' * X[k]) for k in km.numParts)
-    for k in 1:km.numParts
-        axpy!(km.scalingFactors[k], X[k][indexSet,:], Y)
-    end
-    return Y
-end
+applyKernelTrainingRows(km :: ScalingPlusLowRankKernelMatrices, X :: Vector{Matrix{Float64}}) =
+    sum(km.trainingSubmatrices[k] * X[k] for k in 1:length(X))
 
-function applyKernelColumnsBeforeWeights(km :: ScalingPlusLowRankKernelMatrices, X :: AbstractMatrix{Float64}, indexSet)
-    projectedX = km.lowRankProjectionMatrix[indexSet, :]' * X
-    Y = Vector{Matrix{Float64}}(undef, km.numParts)
-    for k in 1:km.numParts
-        Y[k] = km.lowRankProjectionMatrix * (km.lowRankInnerMatrices[k] * projectedX)
-        Y[k][indexSet, :] += km.scalingFactors[k]*X
-    end
-    return Y
-end
+applyKernelTrainingColumnsBeforeWeights(km :: ScalingPlusLowRankKernelMatrices, X :: AbstractMatrix{Float64}) =
+    [M' * X for M in km.trainingSubmatrices]
 
 
 
@@ -134,7 +126,8 @@ mutable struct DiagonalPlusLowRankKernelMatrices <: StandardKernelMatrices
     numParts :: Int
     diagonals :: Vector{Vector{Float64}}
     lowRankProjectionMatrix :: Matrix{Float64}
-    lowRankInnerMatrices :: Vector{<: Any} # No {<: AbstractMatrix} because it might contain UniformScaling
+    lowRankInnerMatrices :: Vector # No {<: AbstractMatrix} because it might contain UniformScaling
+    trainingSubmatrices :: Vector
 
     DiagonalPlusLowRankKernelMatrices(kernel :: GCNKernel) = new(kernel, numParts(kernel),
         Vector{Float64}[], zeros(0,0), AbstractMatrix{Float64}[])
@@ -148,6 +141,14 @@ computeDiagonalPlusLowRankMatrixParts(kernel :: PolySmoothedHypergraphLaplacianK
 function setupMatrices!(:: DirectStandardGCN, km :: DiagonalPlusLowRankKernelMatrices, dataset :: Dataset)
     km.diagonals, km.lowRankProjectionMatrix, km.lowRankInnerMatrices =
         computeDiagonalPlusLowRankMatrixParts(km.kernel, dataset)
+    set = dataset.trainingSet
+    for k in 1:km.numParts
+        K = km.lowRankProjectionMatrix[set,:] * km.lowRankInnerMatrices[k] * km.lowRankProjectionMatrix'
+        for (i,j) in pairs(set)
+            K[i,j] += km.diagonals[k][j]
+        end
+        push!(km.trainingSubmatrices, K)
+    end
 end
 
 
@@ -167,21 +168,8 @@ function applyKernelBeforeWeights(km :: DiagonalPlusLowRankKernelMatrices, X :: 
             for k in 1:km.numParts]
 end
 
-function applyKernelRows(km :: DiagonalPlusLowRankKernelMatrices, X :: Vector{Matrix{Float64}}, indexSet)
-    Y = km.lowRankProjectionMatrix[indexSet,:] *
-            sum(km.lowRankInnerMatrices[k] * (km.lowRankProjectionMatrix' * X[k]) for k in km.numParts)
-    for k in 1:km.numParts
-        axpy!(1.0, km.diagonals[k][indexSet] .* X[k][indexSet,:], Y)
-    end
-    return Y
-end
+applyKernelTrainingRows(km :: DiagonalPlusLowRankKernelMatrices, X :: Vector{Matrix{Float64}}) =
+    sum(km.trainingSubmatrices[k] * X[k] for k in 1:length(X))
 
-function applyKernelColumnsBeforeWeights(km :: DiagonalPlusLowRankKernelMatrices, X :: AbstractMatrix{Float64}, indexSet)
-    projectedX = km.lowRankProjectionMatrix[indexSet, :]' * X
-    Y = Vector{Matrix{Float64}}(undef, km.numParts)
-    for k in 1:km.numParts
-        Y[k] = km.lowRankProjectionMatrix * (km.lowRankInnerMatrices[k] * projectedX)
-        Y[k][indexSet, :] += km.diagonals[k][indexSet] .* X
-    end
-    return Y
-end
+applyKernelTrainingColumnsBeforeWeights(km :: DiagonalPlusLowRankKernelMatrices, X :: AbstractMatrix{Float64}) =
+    [M' * X for M in km.trainingSubmatrices]

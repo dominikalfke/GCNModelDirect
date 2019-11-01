@@ -13,6 +13,7 @@ export
     DirectGCN
 
 Abstract supertype for implementations of GCN.
+Each subtype must store the associated Dataset in a field named `dataset`.
 """
 abstract type DirectGCN end
 
@@ -74,47 +75,41 @@ DirectGCN(arc :: GCNArchitecture, dataset :: Dataset) =
 
 """
     output(gcn :: DirectGCN)
-    output(gcn :: DirectGCN, index :: Int)
-    output(gcn :: DirectGCN, indexSet)
 
-Produce the output matrix of the last GCN layer. If an index set is given, only
-the submatrix of indicated rows is returned. If a single index is given, only
-the indicated row is returned as a column vector.
+Produce the output matrix of the last GCN layer.
 """
-output(:: DirectGCN, index=0) =
+output(:: DirectGCN) =
+    error("No output defined for this DirectGCN implementation")
+
+
+"""
+    trainingOutput(gcn :: DirectGCN)
+
+Produce the output submatrix of the last GCN layer for the training set indices.
+"""
+trainingOutput(:: DirectGCN) =
     error("No output defined for this DirectGCN implementation")
 
 """
     classProbabilities(gcn :: DirectGCN)
-    classProbabilities(gcn :: DirectGCN, index :: Int)
-    classProbabilities(gcn :: DirectGCN, indexSet)
 
 Produce the matrix of class probabilities based on the GCN, i.e., the softmax
-function applied to the rows of the output matrix. If an index set is given,
-only the submatrix of indicated rows is returned. If a single index is given,
-only the vector of probabilities for that one sample is returned.
+function applied to the rows of the output matrix.
 """
-function classProbabilities(gcn :: DirectGCN, index :: Int)
-    y = exp.(output(gcn, index))
-    return y ./ sum(y)
-end
-function classProbabilities(gcn :: DirectGCN, indexSet)
-    Y = exp.(output(gcn, indexSet))
-    return Y ./ sum(Y, dims=2)
-end
 function classProbabilities(gcn :: DirectGCN)
     Y = exp.(output(gcn))
     return Y ./ sum(Y, dims=2)
 end
 
 """
-    classPrediction(gcn :: DirectGCN, index :: Int)
+    trainingClassProbabilities(gcn :: DirectGCN)
 
-Return the index of the class which is predicted to be most likely for the
-sample with the given index.
+Produce the submatrix of class probabilities for the training samples.
 """
-classPrediction(gcn :: DirectGCN, index :: Int) =
-    argmax(output(gcn, index))
+function trainingClassProbabilities(gcn :: DirectGCN)
+    Y = exp.(trainingOutput(gcn))
+    return Y ./ sum(Y, dims=2)
+end
 
 """
     accuracy(gcn :: DirectGCN)
@@ -126,8 +121,9 @@ test set is used (as opposed to the full data set).
 """
 function accuracy(gcn :: DirectGCN, set = gcn.dataset.testSet)
     correctCount = 0.0
+    Y = output(gcn)
     for i in set
-        correctCount += gcn.dataset.labels[i, classPrediction(gcn, i)]
+        correctCount += gcn.dataset.labels[i, argmax(Y[i,:])]
     end
     return correctCount / length(set)
 end
@@ -159,7 +155,6 @@ function runDirectExperiment(exp :: Experiment, numRuns :: Int,
         return acc, setupTime, trainingTime
     end
 end
-
 
 """
     computeParameterGradients(gcn :: DirectGCN)

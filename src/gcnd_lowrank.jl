@@ -65,6 +65,8 @@ mutable struct DirectLowRankGCN <: DirectGCN
     reducedHiddenLayers :: Vector{Matrix{Float64}}
     reducedOutput :: Matrix{Float64}
 
+    trainingReductionSubmatrix :: Matrix{Float64}
+    trainingLabels :: Matrix{Float64}
     optimizerState
 
     function DirectLowRankGCN(arc :: GCNArchitecture, dataset :: Dataset,
@@ -89,6 +91,8 @@ mutable struct DirectLowRankGCN <: DirectGCN
         self.reducedHiddenLayers = Vector{Matrix{Float64}}(undef, self.numLayers-1)
         propagateLayers!(self)
 
+        self.trainingReductionSubmatrix = self.reductionMatrix[dataset.trainingSet, :]
+        self.trainingLabels = dataset.labels[dataset.trainingSet, :]
         self.optimizerState = nothing
 
         return self
@@ -123,17 +127,17 @@ function propagateLayers!(gcn :: DirectLowRankGCN)
     gcn.reducedOutput = X
 end
 
-output(gcn :: DirectLowRankGCN, index :: Int) =
-    gcn.reducedOutput' * gcn.reductionMatrix[index, :]
-output(gcn :: DirectLowRankGCN, set = 1:gcn.dataset.numNodes) =
-    gcn.reductionMatrix[set, :] * gcn.reducedOutput
+output(gcn :: DirectLowRankGCN) =
+    gcn.reductionMatrix * gcn.reducedOutput
+
+trainingOutput(gcn :: DirectLowRankGCN) =
+    gcn.trainingReductionSubmatrix * gcn.reducedOutput
 
 function computeParameterGradients(gcn :: DirectLowRankGCN)
     gradients = Matrix{Matrix{Float64}}(undef, gcn.numLayers, gcn.numKernelParts)
 
-    trainingSet = gcn.dataset.trainingSet
-    dX = (classProbabilities(gcn, trainingSet) - gcn.dataset.labels[trainingSet, :]) ./ length(trainingSet)
-    dX = gcn.reductionMatrix[trainingSet, :]' * dX
+    dX = (trainingClassProbabilities(gcn) - gcn.trainingLabels) / length(gcn.dataset.trainingSet)
+    dX = gcn.trainingReductionSubmatrix' * dX
 
     for l = gcn.numLayers:-1:1
         if l < gcn.numLayers

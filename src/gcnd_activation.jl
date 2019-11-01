@@ -89,7 +89,7 @@ function applyActivation(:: DirectLowRankGCN, ::ReducedReluMatrices, X :: Matrix
 end
 
 function backpropagateActivationDerivative(:: DirectLowRankGCN,
-            :: ReducedReluMatrices, X :: Matrix{Float64}, dX :: Matrix{Float64})
+            :: ReducedReluMatrices, X :: Matrix{Float64}, dY :: Matrix{Float64})
     dY[X .< 0.0] .= 0.0
     return dY
 end
