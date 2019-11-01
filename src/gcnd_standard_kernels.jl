@@ -66,7 +66,7 @@ mutable struct ScalingPlusLowRankKernelMatrices <: StandardKernelMatrices
     numParts :: Int
     scalingFactors :: Vector{Float64}
     lowRankProjectionMatrix :: Matrix{Float64}
-    lowRankInnerMatrices :: Vector{Any} # because it might contain UniformScaling
+    lowRankInnerMatrices :: Vector{<: Any} # because it might contain UniformScaling
 
     ScalingPlusLowRankKernelMatrices(kernel :: GCNKernel) = new(kernel, numParts(kernel),
         Float64[], zeros(0,0), AbstractMatrix{Float64}[])
@@ -121,6 +121,67 @@ function applyKernelColumnsBeforeWeights(km :: ScalingPlusLowRankKernelMatrices,
     for k in 1:km.numParts
         Y[k] = km.lowRankProjectionMatrix * (km.lowRankInnerMatrices[k] * projectedX)
         Y[k][indexSet, :] += km.scalingFactors[k]*X
+    end
+    return Y
+end
+
+
+
+#### Kernels made up of a diagonal and a low rank matrix
+
+mutable struct DiagonalPlusLowRankKernelMatrices <: StandardKernelMatrices
+    kernel :: GCNKernel
+    numParts :: Int
+    diagonals :: Vector{Vector{Float64}}
+    lowRankProjectionMatrix :: Matrix{Float64}
+    lowRankInnerMatrices :: Vector{<: Any} # No {<: AbstractMatrix} because it might contain UniformScaling
+
+    DiagonalPlusLowRankKernelMatrices(kernel :: GCNKernel) = new(kernel, numParts(kernel),
+        Vector{Float64}[], zeros(0,0), AbstractMatrix{Float64}[])
+end
+
+KernelMatrices(kernel :: PolySmoothedHypergraphLaplacianKernel) =
+    DiagonalPlusLowRankKernelMatrices(kernel)
+computeDiagonalPlusLowRankMatrixParts(kernel :: PolySmoothedHypergraphLaplacianKernel, dataset :: Dataset) =
+    computeMatrices(kernel, dataset)
+
+function setupMatrices!(:: DirectStandardGCN, km :: DiagonalPlusLowRankKernelMatrices, dataset :: Dataset)
+    km.diagonals, km.lowRankProjectionMatrix, km.lowRankInnerMatrices =
+        computeDiagonalPlusLowRankMatrixParts(km.kernel, dataset)
+end
+
+
+
+function applyKernel(km :: DiagonalPlusLowRankKernelMatrices, X :: Vector{Matrix{Float64}})
+    Y = km.lowRankProjectionMatrix * sum(km.lowRankInnerMatrices[k] *
+                        (km.lowRankProjectionMatrix' * X[k]) for k in km.numParts)
+    for k in 1:km.numParts
+        axpy!(1.0, km.diagonals[k] .* X[k], Y)
+    end
+    return Y
+end
+
+function applyKernelBeforeWeights(km :: DiagonalPlusLowRankKernelMatrices, X :: AbstractMatrix{Float64})
+    projectedX = km.lowRankProjectionMatrix' * X
+    return [km.diagonals[k] .* X + km.lowRankProjectionMatrix * (km.lowRankInnerMatrices[k] * projectedX)
+            for k in 1:km.numParts]
+end
+
+function applyKernelRows(km :: DiagonalPlusLowRankKernelMatrices, X :: Vector{Matrix{Float64}}, indexSet)
+    Y = km.lowRankProjectionMatrix[indexSet,:] *
+            sum(km.lowRankInnerMatrices[k] * (km.lowRankProjectionMatrix' * X[k]) for k in km.numParts)
+    for k in 1:km.numParts
+        axpy!(1.0, km.diagonals[k][indexSet] .* X[k][indexSet,:], Y)
+    end
+    return Y
+end
+
+function applyKernelColumnsBeforeWeights(km :: DiagonalPlusLowRankKernelMatrices, X :: AbstractMatrix{Float64}, indexSet)
+    projectedX = km.lowRankProjectionMatrix[indexSet, :]' * X
+    Y = Vector{Matrix{Float64}}(undef, km.numParts)
+    for k in 1:km.numParts
+        Y[k] = km.lowRankProjectionMatrix * (km.lowRankInnerMatrices[k] * projectedX)
+        Y[k][indexSet, :] += km.diagonals[k][indexSet] .* X
     end
     return Y
 end
